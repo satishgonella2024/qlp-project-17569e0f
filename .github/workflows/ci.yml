@@ -1,20 +1,145 @@
-name: CI
+```yaml
+name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop ]
+    branches:
+      - main
   pull_request:
-    branches: [ main ]
+    branches:
+      - main
+  schedule:
+    - cron: '0 0 * * 0'  # Weekly security scans
 
 jobs:
-  build:
+  setup:
+    name: Setup Go Environment
     runs-on: ubuntu-latest
-    
+    outputs:
+      go-cache: ${{ steps.go-cache.outputs.dir }}
     steps:
-    - uses: actions/checkout@v3
-    
-    - name: Build
-      run: echo "Add build steps here"
-    
-    - name: Test
-      run: echo "Add test steps here"
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: '1.16'
+
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Cache Go modules
+        id: go-cache
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ runner.os }}-go-${{ hashFiles('**/go.sum') }}
+          restore-keys: |
+            ${{ runner.os }}-go-
+
+  lint:
+    name: Lint and Format Check
+    needs: setup
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Load cached Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ needs.setup.outputs.go-cache }}
+
+      - name: Golint
+        run: |
+          go install golang.org/x/lint/golint@latest
+          golint ./...
+
+      - name: Go fmt
+        run: go fmt ./...
+
+  test:
+    name: Run Tests
+    needs: setup
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        go-version: [1.15, 1.16]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Go
+        uses: actions/setup-go@v2
+        with:
+          go-version: ${{ matrix.go-version }}
+
+      - name: Load cached Go modules
+        uses: actions/cache@v2
+        with:
+          path: ~/go/pkg/mod
+          key: ${{ needs.setup.outputs.go-cache }}
+
+      - name: Run tests with coverage
+        run: |
+          go test ./... -coverprofile=coverage.txt
+          go tool cover -func=coverage.txt
+
+  build:
+    name: Build and Push Docker image
+    needs: [lint, test]
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v1
+
+      - name: Login to DockerHub
+        uses: docker/login-action@v1
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
+
+      - name: Build and push
+        uses: docker/build-push-action@v2
+        with:
+          context: .
+          file: Dockerfile
+          push: true
+          tags: user/app:latest
+
+  security_scan:
+    name: Security Scanning
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Run Gosec Security Scanner
+        uses: securego/gosec-action@v2
+        with:
+          args: './...'
+
+  release:
+    name: Create Release
+    needs: security_scan
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v2
+
+      - name: Create Release
+        id: create_release
+        uses: actions/create-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tag_name: ${{ github.run_number }}
+          release_name: Release ${{ github.run_number }}
+          draft: false
+          prerelease: false
+```
