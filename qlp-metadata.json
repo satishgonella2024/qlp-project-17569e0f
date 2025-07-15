@@ -1,0 +1,14 @@
+{
+  "shared_context": {
+    "language": "go",
+    "created_at": "2025-07-15T20:37:12.087415",
+    "updated_at": "2025-07-15T20:37:33.726483",
+    "main_file_name": "main.go",
+    "project_structure": "flat",
+    "architecture_pattern": "monolith"
+  },
+  "agent_tiers_used": [
+    "unknown"
+  ],
+  "total_execution_time": 103.14953303337097
+}
