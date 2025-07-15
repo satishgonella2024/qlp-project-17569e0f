@@ -1,0 +1,1 @@
+Error handling for API responses
